@@ -2,6 +2,9 @@ const { ClientBuilder } = require('../lib')
 const { assertAddress, assertMessageId, assertMessageWrapper } = require('./assertions')
 const assert = require('assert')
 
+const TestVectors = require('../../../tests/fixtures/test_vectors.json')
+
+
 const seed = '256a818b2aac458941f7274985a410e57fb750f3a3a67969ece5bd9ae7eef5b2'
 
 const client = new ClientBuilder()
@@ -175,5 +178,21 @@ describe('Client', () => {
   it('public key to address', async () => {
     const address = await client.hexPublicKeyToBech32Address("2baaf3bca8ace9f862e60184bd3e79df25ff230f7eaaa4c7f03daa9833ba854a")
     assert.strictEqual(address, 'atoi1qzt0nhsf38nh6rs4p6zs5knqp6psgha9wsv74uajqgjmwc75ugupx3y7x0r')
+  })
+
+  it.only('mnemonic to address conversion', async () => {
+    const mnemonic = TestVectors['general']['MNEMNONIC'];
+    const address = TestVectors['general']['MNEMNONIC_ADDRESS'];
+
+    const seed = await client.mnemonicToHexSeed(mnemonic)
+
+    const generatedAddress = await client.getAddresses(seed)
+      .accountIndex(0)
+      .bech32Hrp('iota')
+      .range(0, 1)
+      .get()
+
+
+    assert.strictEqual(address, generatedAddress)
   })
 })
