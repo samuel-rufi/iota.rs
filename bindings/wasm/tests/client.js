@@ -1,6 +1,7 @@
 const { ClientBuilder } = require('../node/client_wasm')
 const { assertAddress, assertMessageId, assertMessageWrapper } = require('./assertions')
 const assert = require('assert')
+const TestVectors = require('../../../tests/fixtures/test_vectors.json')
 
 const seed = '256a818b2aac458941f7274985a410e57fb750f3a3a67969ece5bd9ae7eef5b2'
 
@@ -224,6 +225,22 @@ async function test() {
       }))
       assert.strictEqual(transaction_id, 'dda4d34eb0138eecd58f3a4cade9f35ea593866e69f657910cebc63297e5898c')
     })
+  })
+
+  it.only('mnemonic to address conversion', async () => {
+    const mnemonic = TestVectors['general']['MNEMNONIC'];
+    const address = TestVectors['general']['MNEMNONIC_ADDRESS'];
+
+    const seed = await client.mnemonicToHexSeed(mnemonic)
+
+    const generatedAddresses = await client.getAddresses(seed)
+      .accountIndex(0)
+      .bech32Hrp('iota')
+      .range(0, 1)
+      .get()
+
+
+    assert.strictEqual(address, generatedAddresses[0])
   })
 }
 test()
