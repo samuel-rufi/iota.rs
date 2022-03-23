@@ -4,9 +4,9 @@
 //! Signing module to allow using different signer types for address generation and transaction essence signing
 
 #[cfg(feature = "ledger")]
-use crate::signing::ledger::LedgerSigner;
+use self::ledger::LedgerSigner;
 #[cfg(feature = "stronghold")]
-use crate::signing::stronghold::StrongholdSigner;
+use self::stronghold::StrongholdSigner;
 use crate::signing::{
     mnemonic::MnemonicSigner,
     types::{InputSigningData, SignerTypeDto},
@@ -29,6 +29,7 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Formatter, Result},
     ops::{Deref, Range},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -37,10 +38,10 @@ pub mod ledger;
 /// Module for signing with a mnemonic or seed
 pub mod mnemonic;
 /// Module for signing with a Stronghold vault
-#[cfg(feature = "stronghold")]
 pub mod stronghold;
 /// Signing related types
 pub mod types;
+
 pub use types::{GenerateAddressMetadata, LedgerStatus, Network, SignMessageMetadata, SignerType};
 
 /// SignerHandle, possible signers are mnemonic, Stronghold and Ledger
@@ -72,10 +73,12 @@ impl SignerHandle {
 
         Ok(match signer_type {
             #[cfg(feature = "stronghold")]
-            SignerTypeDto::Stronghold(stronghold_dto) => StrongholdSigner::try_new_signer_handle(
-                &stronghold_dto.password,
-                Path::new(&stronghold_dto.snapshot_path),
-            )?,
+            SignerTypeDto::Stronghold(stronghold_dto) => StrongholdSigner::builder()
+                .password(&stronghold_dto.password)
+                .snapshot_path(PathBuf::from(&stronghold_dto.snapshot_path))
+                .build()
+                .unwrap()
+                .into(),
             #[cfg(feature = "ledger")]
             SignerTypeDto::LedgerNano => LedgerSigner::new(false),
             #[cfg(feature = "ledger")]
