@@ -36,11 +36,11 @@ pub(super) const STRONGHOLD_FILENAME: &str = "wallet.stronghold";
 pub(super) const PRIVATE_DATA_CLIENT_PATH: &[u8] = b"iota_seed";
 
 /// Hash a password, deriving a key, for accessing Stronghold.
-pub(super) fn derive_key_from_password(password: &str) -> Zeroizing<Option<Vec<u8>>> {
+pub(super) fn derive_key_from_password(password: &str) -> Zeroizing<Vec<u8>> {
     let mut buffer = Zeroizing::new([0u8; 64]);
 
     // Safe to unwrap because rounds > 0.
     crypto::keys::pbkdf::PBKDF2_HMAC_SHA512(password.as_bytes(), b"wallet.rs", 100, buffer.as_mut()).unwrap();
 
-    Zeroizing::new(Some(buffer[..32].to_vec()))
+    Zeroizing::new(buffer[..32].to_vec())
 }

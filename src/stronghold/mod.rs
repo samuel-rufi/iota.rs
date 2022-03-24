@@ -20,8 +20,10 @@ mod signer;
 use crate::signing::{SignerHandle, SignerType};
 use derive_builder::Builder;
 use iota_stronghold::Stronghold;
+use log::debug;
 use riker::actors::ActorSystem;
 use std::{path::PathBuf, sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
 use zeroize::{Zeroize, Zeroizing};
 
 #[cfg(not(feature = "async"))]
@@ -44,8 +46,8 @@ pub struct StrongholdClient {
     /// Note that in [StrongholdClientBuilder] there isn't a `key()` setter, because we don't want a user to directly
     /// set this field. Instead, [StrongholdClientBuilder::password()] is provided to hash a user-input password string
     /// and derive a key from it.
-    #[builder(setter(custom))]
-    key: Zeroizing<Option<Vec<u8>>>,
+    #[builder(default = "Arc::new(Mutex::new(None))", setter(custom))]
+    key: Arc<Mutex<Option<Zeroizing<Vec<u8>>>>>,
 
     /// An interval of time, after which `key` will be cleared from the memory.
     ///
@@ -53,8 +55,12 @@ pub struct StrongholdClient {
     /// timer will be spawned in the background to clear ([zeroize]) the key after `timeout`.
     ///
     /// If [StrongholdClient] is destroyed (dropped), then the timer will stop too.
-    #[builder(default)]
-    _timeout: Option<Duration>,
+    #[builder(default, setter(strip_option))]
+    timeout: Option<Duration>,
+
+    /// A handle to the timeout task.
+    #[builder(default = "Arc::new(Mutex::new(None))", setter(skip))]
+    timeout_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 
     /// The path to a snapshot (persistent Stronghold).
     snapshot_path: PathBuf,
@@ -74,11 +80,14 @@ impl From<StrongholdClient> for SignerHandle {
     }
 }
 
+/// Extra / custom builder method implementations.
 impl StrongholdClientBuilder {
     /// Use an user-input password string to derive a key to use [Stronghold].
     pub fn password(mut self, password: &str) -> Self {
         // Note that derive_builder always adds another layer of Option<T>.
-        self.key = Some(self::common::derive_key_from_password(password));
+        self.key = Some(Arc::new(Mutex::new(Some(self::common::derive_key_from_password(
+            password,
+        )))));
         self
     }
 
@@ -99,22 +108,91 @@ impl StrongholdClient {
     }
 
     /// Use an user-input password string to derive a key to use [Stronghold].
-    pub fn set_password(&mut self, password: &str) -> &Self {
-        self.key = self::common::derive_key_from_password(password);
+    pub async fn set_password(&mut self, password: &str) -> &mut Self {
+        *self.key.lock().await = Some(self::common::derive_key_from_password(password));
 
-        // TODO: Spawn the password clearing thread
+        // If a timeout is set, spawn a task to clear the key after the timeout.
+        if let Some(timeout) = self.timeout {
+            // If there has been a spawned task, stop it and re-spawn one.
+            if let Some(timeout_task) = self.timeout_task.lock().await.take() {
+                timeout_task.abort();
+            }
+
+            // The key clearing task, with the data it owns.
+            let key = self.key.clone();
+            let task_self = self.timeout_task.clone();
+
+            *self.timeout_task.lock().await = Some(tokio::spawn(async move {
+                tokio::time::sleep(timeout).await;
+
+                debug!("StrongholdClient is purging the key");
+                if let Some(mut key) = key.lock().await.take() {
+                    key.zeroize();
+                }
+
+                // Take self, but do nothing (we're exiting anyways).
+                task_self.lock().await.take();
+            }));
+        }
 
         self
     }
 
     /// Immediately clear ([zeroize]) the stored key.
     ///
-    /// If a key clearing threas has been spawned, then it'll be stopped too.
-    pub fn clear_key(&mut self) -> &Self {
-        self.key.zeroize();
+    /// If a key clearing thread has been spawned, then it'll be stopped too.
+    pub async fn clear_key(&mut self) {
+        // Stop a spawned task and setting it to None first.
+        if let Some(timeout_task) = self.timeout_task.lock().await.take() {
+            timeout_task.abort();
+        }
 
-        // TODO: Stop the password clearing thread
+        // Purge the key, setting it to None then.
+        if let Some(mut key) = self.key.lock().await.take() {
+            key.zeroize();
+        }
+    }
+}
 
-        self
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_clear_key() {
+        let mut client = StrongholdClient::builder()
+            .snapshot_path(PathBuf::from("test.stronghold"))
+            .timeout(Duration::from_millis(100))
+            .build()
+            .unwrap();
+
+        // Passwords can be set later; no clearing task was spawned; any action requiring the key (derived from the
+        // password) would fail.
+        assert!(matches!(*client.key.lock().await, None));
+        assert!(matches!(client.timeout, Some(_)));
+        assert!(matches!(*client.timeout_task.lock().await, None));
+
+        // Setting a password would spawn a task to automatically clear the key.
+        client.set_password("password").await;
+        assert!(matches!(*client.key.lock().await, Some(_)));
+        assert!(matches!(client.timeout, Some(_)));
+        assert!(matches!(*client.timeout_task.lock().await, Some(_)));
+
+        // After the timeout, the key should be purged.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(matches!(*client.key.lock().await, None));
+        assert!(matches!(client.timeout, Some(_)));
+        assert!(matches!(*client.timeout_task.lock().await, None));
+
+        // Set the key again, but this time we manually purge the key.
+        client.set_password("password").await;
+        assert!(matches!(*client.key.lock().await, Some(_)));
+        assert!(matches!(client.timeout, Some(_)));
+        assert!(matches!(*client.timeout_task.lock().await, Some(_)));
+
+        client.clear_key().await;
+        assert!(matches!(*client.key.lock().await, None));
+        assert!(matches!(client.timeout, Some(_)));
+        assert!(matches!(*client.timeout_task.lock().await, None));
     }
 }

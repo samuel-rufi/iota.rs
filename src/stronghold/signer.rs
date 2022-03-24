@@ -50,7 +50,8 @@ impl Signer for StrongholdClient {
         self.lazy_load_snapshot().await.unwrap_or(());
 
         // The key needs to be supplied first.
-        let key = if let Some(key) = &*self.key {
+        let locked_key = self.key.lock().await;
+        let key = if let Some(key) = &*locked_key {
             key
         } else {
             return Err(Error::StrongholdKeyCleared);
@@ -69,7 +70,7 @@ impl Signer for StrongholdClient {
         match self
             .stronghold
             .write_all_to_snapshot(
-                key,
+                &**key,
                 Some(STRONGHOLD_FILENAME.to_string()),
                 Some(self.snapshot_path.clone()),
             )
@@ -202,7 +203,8 @@ impl StrongholdClient {
         }
 
         // The key needs to be supplied first.
-        let key = if let Some(key) = &*self.key {
+        let locked_key = self.key.lock().await;
+        let key = if let Some(key) = &*locked_key {
             key
         } else {
             return Err(Error::StrongholdKeyCleared);
@@ -213,7 +215,7 @@ impl StrongholdClient {
             .read_snapshot(
                 PRIVATE_DATA_CLIENT_PATH.to_vec(),
                 None,
-                key,
+                &**key,
                 Some(STRONGHOLD_FILENAME.to_string()),
                 Some(self.snapshot_path.clone()),
             )
