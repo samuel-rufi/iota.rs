@@ -15,23 +15,21 @@
 
 mod common;
 mod db;
+mod encryption;
 mod signer;
 
-use crate::signing::{SignerHandle, SignerType};
+use self::common::{PRIVATE_DATA_CLIENT_PATH, STRONGHOLD_FILENAME};
+use crate::{
+    signing::{SignerHandle, SignerType},
+    Error, Result,
+};
 use derive_builder::Builder;
-use iota_stronghold::Stronghold;
+use iota_stronghold::{ResultMessage, Stronghold};
 use log::debug;
 use riker::actors::ActorSystem;
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use tokio::task::JoinHandle;
+use tokio::{sync::Mutex, task::JoinHandle};
 use zeroize::{Zeroize, Zeroizing};
-
-#[cfg(not(feature = "async"))]
-use std::sync::Mutex;
-#[cfg(feature = "async")]
-use tokio::sync::Mutex;
-
-use self::common::PRIVATE_DATA_CLIENT_PATH;
 
 /// A wrapper on [Stronghold].
 #[derive(Builder)]
@@ -88,11 +86,12 @@ impl StrongholdClientBuilder {
         self.key = Some(Arc::new(Mutex::new(Some(self::common::derive_key_from_password(
             password,
         )))));
+
         self
     }
 
     /// We create a default Stronghold instance if none is supplied by the user.
-    fn default_stronghold() -> Result<Stronghold, String> {
+    fn default_stronghold() -> std::result::Result<Stronghold, String> {
         let system = ActorSystem::new().map_err(|err| err.to_string())?;
         let client_path = PRIVATE_DATA_CLIENT_PATH.to_vec();
         let options = Vec::new();
@@ -150,6 +149,66 @@ impl StrongholdClient {
         // Purge the key, setting it to None then.
         if let Some(mut key) = self.key.lock().await.take() {
             key.zeroize();
+        }
+    }
+
+    /// Load Stronghold from a snapshot at [Self::snapshot_path], if it hasn't been loaded yet.
+    pub async fn read_stronghold_snapshot(&mut self) -> Result<()> {
+        if self.snapshot_loaded {
+            return Ok(());
+        }
+
+        // The key needs to be supplied first.
+        let locked_key = self.key.lock().await;
+        let key = if let Some(key) = &*locked_key {
+            key
+        } else {
+            return Err(Error::StrongholdKeyCleared);
+        };
+
+        match self
+            .stronghold
+            .read_snapshot(
+                PRIVATE_DATA_CLIENT_PATH.to_vec(),
+                None,
+                &**key,
+                Some(STRONGHOLD_FILENAME.to_string()),
+                Some(self.snapshot_path.clone()),
+            )
+            .await
+        {
+            ResultMessage::Ok(_) => Ok(()),
+            ResultMessage::Error(err) => Err(crate::Error::StrongholdProcedureError(err)),
+        }?;
+
+        self.snapshot_loaded = true;
+
+        Ok(())
+    }
+
+    /// Persist Stronghold to a snapshot at [Self::snapshot_path].
+    ///
+    /// It doesn't "unload" the snapshot -- Stronghold is RAM-based.
+    pub async fn write_stronghold_snapshot(&mut self) -> Result<()> {
+        // The key needs to be supplied first.
+        let locked_key = self.key.lock().await;
+        let key = if let Some(key) = &*locked_key {
+            key
+        } else {
+            return Err(Error::StrongholdKeyCleared);
+        };
+
+        match self
+            .stronghold
+            .write_all_to_snapshot(
+                &**key,
+                Some(STRONGHOLD_FILENAME.to_string()),
+                Some(self.snapshot_path.clone()),
+            )
+            .await
+        {
+            ResultMessage::Ok(_) => Ok(()),
+            ResultMessage::Error(err) => Err(crate::Error::StrongholdProcedureError(err)),
         }
     }
 }

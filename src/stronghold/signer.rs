@@ -4,10 +4,7 @@
 //! The [Signer] implementation for [StrongholdClient].
 
 use super::{
-    common::{
-        DERIVE_OUTPUT_RECORD_PATH, PRIVATE_DATA_CLIENT_PATH, RECORD_HINT, SECRET_VAULT_PATH, SEED_RECORD_PATH,
-        STRONGHOLD_FILENAME,
-    },
+    common::{DERIVE_OUTPUT_RECORD_PATH, RECORD_HINT, SECRET_VAULT_PATH, SEED_RECORD_PATH, STRONGHOLD_FILENAME},
     StrongholdClient,
 };
 use crate::{
@@ -47,7 +44,7 @@ impl Signer for StrongholdClient {
         // XXX: The current design of [Error] doesn't allow us to see if it's really a "file does
         // not exist" error or not. Better throw errors other than that, but now we just leave it
         // like this, as if so then later operations would throw errors too.
-        self.lazy_load_snapshot().await.unwrap_or(());
+        self.read_stronghold_snapshot().await.unwrap_or(());
 
         // The key needs to be supplied first.
         let locked_key = self.key.lock().await;
@@ -95,7 +92,7 @@ impl Signer for StrongholdClient {
         _metadata: GenerateAddressMetadata,
     ) -> Result<Vec<Address>> {
         // Load the Stronghold snapshot if it hasn't been loaded yet.
-        self.lazy_load_snapshot().await?;
+        self.read_stronghold_snapshot().await?;
 
         // Stronghold arguments.
         let seed_location = SLIP10DeriveInput::Seed(Location::Generic {
@@ -148,7 +145,7 @@ impl Signer for StrongholdClient {
         _: &SignMessageMetadata<'a>,
     ) -> Result<UnlockBlock> {
         // Load the Stronghold snapshot if it hasn't been loaded yet.
-        self.lazy_load_snapshot().await?;
+        self.read_stronghold_snapshot().await?;
 
         // Stronghold arguments.
         let seed_location = SLIP10DeriveInput::Seed(Location::Generic {
@@ -195,41 +192,8 @@ impl Signer for StrongholdClient {
     }
 }
 
+/// Private methods for the signer implementation.
 impl StrongholdClient {
-    /// Load the Stronghold snapshot from [Self::snapshot_path], if it hasn't been loaded yet.
-    async fn lazy_load_snapshot(&mut self) -> Result<()> {
-        if self.snapshot_loaded {
-            return Ok(());
-        }
-
-        // The key needs to be supplied first.
-        let locked_key = self.key.lock().await;
-        let key = if let Some(key) = &*locked_key {
-            key
-        } else {
-            return Err(Error::StrongholdKeyCleared);
-        };
-
-        match self
-            .stronghold
-            .read_snapshot(
-                PRIVATE_DATA_CLIENT_PATH.to_vec(),
-                None,
-                &**key,
-                Some(STRONGHOLD_FILENAME.to_string()),
-                Some(self.snapshot_path.clone()),
-            )
-            .await
-        {
-            ResultMessage::Ok(_) => Ok(()),
-            ResultMessage::Error(err) => Err(crate::Error::StrongholdProcedureError(err)),
-        }?;
-
-        self.snapshot_loaded = true;
-
-        Ok(())
-    }
-
     /// Execute [Procedure::BIP39Recover] in Stronghold to put a mnemonic into the Stronghold vault.
     async fn bip39_recover(
         &self,
