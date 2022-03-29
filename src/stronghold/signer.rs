@@ -4,12 +4,12 @@
 //! The [Signer] implementation for [StrongholdClient].
 
 use super::{
-    common::{DERIVE_OUTPUT_RECORD_PATH, RECORD_HINT, SECRET_VAULT_PATH, SEED_RECORD_PATH, STRONGHOLD_FILENAME},
+    common::{DERIVE_OUTPUT_RECORD_PATH, RECORD_HINT, SECRET_VAULT_PATH, SEED_RECORD_PATH},
     StrongholdClient,
 };
 use crate::{
     signing::{types::InputSigningData, GenerateAddressMetadata, SignMessageMetadata, Signer},
-    Error, Result,
+    Result,
 };
 use async_trait::async_trait;
 use bee_message::{
@@ -46,14 +46,6 @@ impl Signer for StrongholdClient {
         // like this, as if so then later operations would throw errors too.
         self.read_stronghold_snapshot().await.unwrap_or(());
 
-        // The key needs to be supplied first.
-        let locked_key = self.key.lock().await;
-        let key = if let Some(key) = &*locked_key {
-            key
-        } else {
-            return Err(Error::StrongholdKeyCleared);
-        };
-
         // If the snapshot has successfully been loaded, then we need to check if there has been a
         // mnemonic stored in Stronghold or not to prevent overwriting it.
         if self.snapshot_loaded && self.stronghold.record_exists(output.clone()).await {
@@ -64,18 +56,7 @@ impl Signer for StrongholdClient {
         self.bip39_recover(trimmed_mnemonic, None, output, hint).await?;
 
         // Persist Stronghold to the disk.
-        match self
-            .stronghold
-            .write_all_to_snapshot(
-                &**key,
-                Some(STRONGHOLD_FILENAME.to_string()),
-                Some(self.snapshot_path.clone()),
-            )
-            .await
-        {
-            ResultMessage::Ok(_) => Ok(()),
-            ResultMessage::Error(err) => Err(crate::Error::StrongholdProcedureError(err)),
-        }?;
+        self.write_stronghold_snapshot().await?;
 
         // Now we consider that the snapshot has been loaded; it's just in a reversed order.
         self.snapshot_loaded = true;
