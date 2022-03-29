@@ -47,6 +47,7 @@ pub mod message_interface;
 pub mod node_api;
 pub mod node_manager;
 pub mod signing;
+#[cfg(feature = "stronghold")]
 pub mod stronghold;
 pub mod utils;
 

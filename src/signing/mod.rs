@@ -38,6 +38,7 @@ pub mod ledger;
 /// Module for signing with a mnemonic or seed
 pub mod mnemonic;
 /// Module for signing with a Stronghold vault
+#[cfg(feature = "stronghold")]
 pub mod stronghold;
 /// Signing related types
 pub mod types;

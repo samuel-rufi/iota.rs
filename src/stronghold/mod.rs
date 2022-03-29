@@ -6,12 +6,41 @@
 //! [Stronghold] can be used as a multi-purpose secret service providing:
 //!
 //! - Smart-card-like secret _vault_
-//! - Generic key-value database _store_
+//! - Generic key-value encrypted database _store_
 //!
-//! This module contains the implementation of [StrongholdClient], a multi-purpose wrapper on a [Stronghold] connection
-//! for [Signer] and [DatabaseProvider].
+//! [StrongholdClient] respectively implements [DatabaseProvider] and [Signer] for the above purposes. Type aliases
+//! [StrongholdDatabaseProvider] and [StrongholdSigner] are also provided if one wants to have a more consistent naming
+//! when using any of the feature sets.
+//!
+//! Use `builder()` to construct a [StrongholdClient] with customized parameters; see documentation
+//! of methods of [StrongholdClientBuilder] for details. Alternatively, invoking `new()` (or using [Default::default()])
+//! creates a [StrongholdClient] with default parameters.
+//!
+//! The default [StrongholdClient]:
+//!
+//! - is not initialized with a password
+//! - is without a password clearing timeout
+//! - is not associated with a snapshot file on the disk (i.e. working purely in memory)
+//!
+//! The default setting limits what [StrongholdClient] can do:
+//!
+//! - Without a password, all cryptographic operations (including database operations, as they encrypt / decrypt data)
+//!   would fail.
+//! - Without a password clearing timeout, the derived key would be stored in the memory for as long as possible, and
+//!   could be used as an attack vector.
+//! - Without a snapshot path configured, all operations would be _transient_ (i.e. all data would be lost when
+//!   [StrongholdClient] is dropped).
+//!
+//! These configurations can also be done later using methods e.g. [set_password()], [set_snapshot_path()].
+//!
+//! To load / store the Stronghold state from / to a snapshot, manually invoke [read_stronghold_snapshot()] /
+//! [write_stronghold_snapshot()] before / after any other operation.
 //!
 //! [Stronghold]: iota_stronghold
+//! [DatabaseProvider]: crate::db::DatabaseProvider
+//! [Signer]: crate::signing::Signer
+//! [StrongholdDatabaseProvider]: crate::db::StrongholdDatabaseProvider
+//! [StrongholdSigner]: crate::signing::StrongholdSigner
 
 mod common;
 mod db;
@@ -33,10 +62,9 @@ use zeroize::{Zeroize, Zeroizing};
 
 /// A wrapper on [Stronghold].
 #[derive(Builder)]
-#[builder(pattern = "owned")]
+#[builder(default, pattern = "owned")]
 pub struct StrongholdClient {
     /// A stronghold instance.
-    #[builder(default = "Self::default_stronghold()?")]
     stronghold: Stronghold,
 
     /// A key to open the Stronghold vault.
@@ -44,7 +72,7 @@ pub struct StrongholdClient {
     /// Note that in [StrongholdClientBuilder] there isn't a `key()` setter, because we don't want a user to directly
     /// set this field. Instead, [StrongholdClientBuilder::password()] is provided to hash a user-input password string
     /// and derive a key from it.
-    #[builder(default = "Arc::new(Mutex::new(None))", setter(custom))]
+    #[builder(setter(custom))]
     key: Arc<Mutex<Option<Zeroizing<Vec<u8>>>>>,
 
     /// An interval of time, after which `key` will be cleared from the memory.
@@ -53,15 +81,16 @@ pub struct StrongholdClient {
     /// timer will be spawned in the background to clear ([zeroize]) the key after `timeout`.
     ///
     /// If [StrongholdClient] is destroyed (dropped), then the timer will stop too.
-    #[builder(default, setter(strip_option))]
+    #[builder(setter(strip_option))]
     timeout: Option<Duration>,
 
     /// A handle to the timeout task.
-    #[builder(default = "Arc::new(Mutex::new(None))", setter(skip))]
+    #[builder(setter(skip))]
     timeout_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 
     /// The path to a snapshot (persistent Stronghold).
-    snapshot_path: PathBuf,
+    #[builder(setter(strip_option))]
+    snapshot_path: Option<PathBuf>,
 
     /// Whether the snapshot has been loaded from the disk to the memory.
     #[builder(setter(skip))]
@@ -78,6 +107,24 @@ impl From<StrongholdClient> for SignerHandle {
     }
 }
 
+impl Default for StrongholdClient {
+    fn default() -> Self {
+        // XXX: we unwrap here.
+        let system = ActorSystem::new().map_err(|err| err.to_string()).unwrap();
+        let client_path = PRIVATE_DATA_CLIENT_PATH.to_vec();
+        let options = Vec::new();
+
+        Self {
+            stronghold: Stronghold::init_stronghold_system(system, client_path, options),
+            key: Arc::new(Mutex::new(None)),
+            timeout: None,
+            timeout_task: Arc::new(Mutex::new(None)),
+            snapshot_path: None,
+            snapshot_loaded: false,
+        }
+    }
+}
+
 /// Extra / custom builder method implementations.
 impl StrongholdClientBuilder {
     /// Use an user-input password string to derive a key to use [Stronghold].
@@ -89,18 +136,14 @@ impl StrongholdClientBuilder {
 
         self
     }
-
-    /// We create a default Stronghold instance if none is supplied by the user.
-    fn default_stronghold() -> std::result::Result<Stronghold, String> {
-        let system = ActorSystem::new().map_err(|err| err.to_string())?;
-        let client_path = PRIVATE_DATA_CLIENT_PATH.to_vec();
-        let options = Vec::new();
-
-        Ok(Stronghold::init_stronghold_system(system, client_path, options))
-    }
 }
 
 impl StrongholdClient {
+    /// Create a [StrongholdClient] with default parameters.
+    pub fn new() -> StrongholdClient {
+        StrongholdClient::default()
+    }
+
     /// Create a builder to construct a [StrongholdClient].
     pub fn builder() -> StrongholdClientBuilder {
         StrongholdClientBuilder::default()
@@ -137,6 +180,12 @@ impl StrongholdClient {
         self
     }
 
+    /// Set the path to a Stronghold snapshot file.
+    pub async fn set_snapshot_path(&mut self, path: PathBuf) -> &mut Self {
+        self.snapshot_path = Some(path);
+        self
+    }
+
     /// Immediately clear ([zeroize]) the stored key.
     ///
     /// If a key clearing thread has been spawned, then it'll be stopped too.
@@ -158,12 +207,18 @@ impl StrongholdClient {
             return Ok(());
         }
 
-        // The key needs to be supplied first.
+        // The key and the snapshot path need to be supplied first.
         let locked_key = self.key.lock().await;
         let key = if let Some(key) = &*locked_key {
             key
         } else {
             return Err(Error::StrongholdKeyCleared);
+        };
+
+        let snapshot_path = if let Some(path) = &self.snapshot_path {
+            path
+        } else {
+            return Err(Error::StrongholdSnapshotPathMissing);
         };
 
         match self
@@ -173,7 +228,7 @@ impl StrongholdClient {
                 None,
                 &**key,
                 Some(STRONGHOLD_FILENAME.to_string()),
-                Some(self.snapshot_path.clone()),
+                Some(snapshot_path.clone()),
             )
             .await
         {
@@ -190,7 +245,7 @@ impl StrongholdClient {
     ///
     /// It doesn't "unload" the snapshot -- Stronghold is RAM-based.
     pub async fn write_stronghold_snapshot(&mut self) -> Result<()> {
-        // The key needs to be supplied first.
+        // The key and the snapshot path need to be supplied first.
         let locked_key = self.key.lock().await;
         let key = if let Some(key) = &*locked_key {
             key
@@ -198,12 +253,18 @@ impl StrongholdClient {
             return Err(Error::StrongholdKeyCleared);
         };
 
+        let snapshot_path = if let Some(path) = &self.snapshot_path {
+            path
+        } else {
+            return Err(Error::StrongholdSnapshotPathMissing);
+        };
+
         match self
             .stronghold
             .write_all_to_snapshot(
                 &**key,
                 Some(STRONGHOLD_FILENAME.to_string()),
-                Some(self.snapshot_path.clone()),
+                Some(snapshot_path.clone()),
             )
             .await
         {
@@ -220,7 +281,6 @@ mod tests {
     #[tokio::test]
     async fn test_clear_key() {
         let mut client = StrongholdClient::builder()
-            .snapshot_path(PathBuf::from("test.stronghold"))
             .timeout(Duration::from_millis(100))
             .build()
             .unwrap();

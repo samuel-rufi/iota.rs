@@ -3,8 +3,10 @@
 
 //! Database provider interfaces and implementations.
 
+#[cfg(feature = "stronghold")]
 mod stronghold;
 
+#[cfg(feature = "stronghold")]
 pub use self::stronghold::StrongholdDatabaseProvider;
 
 use crate::Result;
