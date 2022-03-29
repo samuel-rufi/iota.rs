@@ -1,7 +1,7 @@
 // Copyright 2022 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-//! A symmetric encryption implementation for [StrongholdClient]
+//! A symmetric encryption implementation for [StrongholdAdapter]
 
 use crate::Result;
 use crypto::ciphers::{chacha::XChaCha20Poly1305, traits::Aead};

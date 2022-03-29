@@ -1,11 +1,11 @@
 // Copyright 2022 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-//! The [DatabaseProvider] implementation for [StrongholdClient].
+//! The [DatabaseProvider] implementation for [StrongholdAdapter].
 
 use super::{
     encryption::{decrypt, encrypt},
-    StrongholdClient,
+    StrongholdAdapter,
 };
 use crate::{db::DatabaseProvider, Error, Result};
 use async_trait::async_trait;
@@ -22,7 +22,7 @@ fn location_from_key(key: &[u8]) -> Location {
 }
 
 #[async_trait]
-impl DatabaseProvider for StrongholdClient {
+impl DatabaseProvider for StrongholdAdapter {
     async fn get(&mut self, k: &[u8]) -> Result<Option<Vec<u8>>> {
         let location = location_from_key(k);
         let (data, status) = self.stronghold.read_from_store(location).await;
@@ -84,10 +84,10 @@ impl DatabaseProvider for StrongholdClient {
 mod tests {
     #[tokio::test]
     async fn test_stronghold_db() {
-        use super::StrongholdClient;
+        use super::StrongholdAdapter;
         use crate::db::DatabaseProvider;
 
-        let mut stronghold = StrongholdClient::builder()
+        let mut stronghold = StrongholdAdapter::builder()
             .snapshot_path("test.stronghold".into())
             .password("drowssap")
             .build()

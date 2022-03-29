@@ -3,9 +3,9 @@
 
 //! Stronghold-as-a-Signer implementation.
 
-use crate::stronghold::StrongholdClient;
+use crate::stronghold::StrongholdAdapter;
 
 /// Stronghold as a signer.
 ///
-/// This is just an alias to the all-in-one [StrongholdClient].
-pub type StrongholdSigner = StrongholdClient;
+/// This is just an alias to the all-in-one [StrongholdAdapter].
+pub type StrongholdSigner = StrongholdAdapter;

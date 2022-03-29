@@ -8,28 +8,28 @@
 //! - Smart-card-like secret _vault_
 //! - Generic key-value encrypted database _store_
 //!
-//! [StrongholdClient] respectively implements [DatabaseProvider] and [Signer] for the above purposes. Type aliases
+//! [StrongholdAdapter] respectively implements [DatabaseProvider] and [Signer] for the above purposes. Type aliases
 //! [StrongholdDatabaseProvider] and [StrongholdSigner] are also provided if one wants to have a more consistent naming
 //! when using any of the feature sets.
 //!
-//! Use `builder()` to construct a [StrongholdClient] with customized parameters; see documentation
-//! of methods of [StrongholdClientBuilder] for details. Alternatively, invoking `new()` (or using [Default::default()])
-//! creates a [StrongholdClient] with default parameters.
+//! Use `builder()` to construct a [StrongholdAdapter] with customized parameters; see documentation
+//! of methods of [StrongholdAdapterBuilder] for details. Alternatively, invoking `new()` (or using
+//! [Default::default()]) creates a [StrongholdAdapter] with default parameters.
 //!
-//! The default [StrongholdClient]:
+//! The default [StrongholdAdapter]:
 //!
 //! - is not initialized with a password
 //! - is without a password clearing timeout
 //! - is not associated with a snapshot file on the disk (i.e. working purely in memory)
 //!
-//! The default setting limits what [StrongholdClient] can do:
+//! The default setting limits what [StrongholdAdapter] can do:
 //!
 //! - Without a password, all cryptographic operations (including database operations, as they encrypt / decrypt data)
 //!   would fail.
 //! - Without a password clearing timeout, the derived key would be stored in the memory for as long as possible, and
 //!   could be used as an attack vector.
 //! - Without a snapshot path configured, all operations would be _transient_ (i.e. all data would be lost when
-//!   [StrongholdClient] is dropped).
+//!   [StrongholdAdapter] is dropped).
 //!
 //! These configurations can also be done later using methods e.g. [set_password()], [set_snapshot_path()].
 //!
@@ -63,15 +63,15 @@ use zeroize::{Zeroize, Zeroizing};
 /// A wrapper on [Stronghold].
 #[derive(Builder)]
 #[builder(default, pattern = "owned")]
-pub struct StrongholdClient {
+pub struct StrongholdAdapter {
     /// A stronghold instance.
     stronghold: Stronghold,
 
     /// A key to open the Stronghold vault.
     ///
-    /// Note that in [StrongholdClientBuilder] there isn't a `key()` setter, because we don't want a user to directly
-    /// set this field. Instead, [StrongholdClientBuilder::password()] is provided to hash a user-input password string
-    /// and derive a key from it.
+    /// Note that in [StrongholdAdapterBuilder] there isn't a `key()` setter, because we don't want a user to directly
+    /// set this field. Instead, [StrongholdAdapterBuilder::password()] is provided to hash a user-input password
+    /// string and derive a key from it.
     #[builder(setter(custom))]
     key: Arc<Mutex<Option<Zeroizing<Vec<u8>>>>>,
 
@@ -80,7 +80,7 @@ pub struct StrongholdClient {
     /// This is an extra security measure to further prevent attacks. If a timeout is set, then upon a `key` is set, a
     /// timer will be spawned in the background to clear ([zeroize]) the key after `timeout`.
     ///
-    /// If [StrongholdClient] is destroyed (dropped), then the timer will stop too.
+    /// If [StrongholdAdapter] is destroyed (dropped), then the timer will stop too.
     #[builder(setter(strip_option))]
     timeout: Option<Duration>,
 
@@ -98,8 +98,8 @@ pub struct StrongholdClient {
 }
 
 /// [SignerHandle]s wrapping [Signer]s are still required at some places.
-impl From<StrongholdClient> for SignerHandle {
-    fn from(signer: StrongholdClient) -> Self {
+impl From<StrongholdAdapter> for SignerHandle {
+    fn from(signer: StrongholdAdapter) -> Self {
         SignerHandle {
             signer: Arc::new(Mutex::new(Box::new(signer))),
             signer_type: SignerType::Stronghold,
@@ -107,7 +107,7 @@ impl From<StrongholdClient> for SignerHandle {
     }
 }
 
-impl Default for StrongholdClient {
+impl Default for StrongholdAdapter {
     fn default() -> Self {
         // XXX: we unwrap here.
         let system = ActorSystem::new().map_err(|err| err.to_string()).unwrap();
@@ -126,7 +126,7 @@ impl Default for StrongholdClient {
 }
 
 /// Extra / custom builder method implementations.
-impl StrongholdClientBuilder {
+impl StrongholdAdapterBuilder {
     /// Use an user-input password string to derive a key to use [Stronghold].
     pub fn password(mut self, password: &str) -> Self {
         // Note that derive_builder always adds another layer of Option<T>.
@@ -138,15 +138,15 @@ impl StrongholdClientBuilder {
     }
 }
 
-impl StrongholdClient {
-    /// Create a [StrongholdClient] with default parameters.
-    pub fn new() -> StrongholdClient {
-        StrongholdClient::default()
+impl StrongholdAdapter {
+    /// Create a [StrongholdAdapter] with default parameters.
+    pub fn new() -> StrongholdAdapter {
+        StrongholdAdapter::default()
     }
 
-    /// Create a builder to construct a [StrongholdClient].
-    pub fn builder() -> StrongholdClientBuilder {
-        StrongholdClientBuilder::default()
+    /// Create a builder to construct a [StrongholdAdapter].
+    pub fn builder() -> StrongholdAdapterBuilder {
+        StrongholdAdapterBuilder::default()
     }
 
     /// Use an user-input password string to derive a key to use [Stronghold].
@@ -167,7 +167,7 @@ impl StrongholdClient {
             *self.timeout_task.lock().await = Some(tokio::spawn(async move {
                 tokio::time::sleep(timeout).await;
 
-                debug!("StrongholdClient is purging the key");
+                debug!("StrongholdAdapter is purging the key");
                 if let Some(mut key) = key.lock().await.take() {
                     key.zeroize();
                 }
@@ -280,7 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clear_key() {
-        let mut client = StrongholdClient::builder()
+        let mut client = StrongholdAdapter::builder()
             .timeout(Duration::from_millis(100))
             .build()
             .unwrap();

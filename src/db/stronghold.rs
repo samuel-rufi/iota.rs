@@ -3,9 +3,9 @@
 
 //! Stronghold-as-a-Database implementation.
 
-use crate::stronghold::StrongholdClient;
+use crate::stronghold::StrongholdAdapter;
 
 /// Stronghold as a database provider.
 ///
-/// This is just an alias to the all-in-one [StrongholdClient].
-pub type StrongholdDatabaseProvider = StrongholdClient;
+/// This is just an alias to the all-in-one [StrongholdAdapter].
+pub type StrongholdDatabaseProvider = StrongholdAdapter;

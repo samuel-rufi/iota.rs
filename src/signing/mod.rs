@@ -29,9 +29,11 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Formatter, Result},
     ops::{Deref, Range},
-    path::PathBuf,
     sync::Arc,
 };
+
+#[cfg(feature = "stronghold")]
+use std::path::PathBuf;
 
 #[cfg(feature = "ledger")]
 pub mod ledger;

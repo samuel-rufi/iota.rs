@@ -1,11 +1,11 @@
 // Copyright 2022 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-//! The [Signer] implementation for [StrongholdClient].
+//! The [Signer] implementation for [StrongholdAdapter].
 
 use super::{
     common::{DERIVE_OUTPUT_RECORD_PATH, RECORD_HINT, SECRET_VAULT_PATH, SEED_RECORD_PATH},
-    StrongholdClient,
+    StrongholdAdapter,
 };
 use crate::{
     signing::{types::InputSigningData, GenerateAddressMetadata, SignMessageMetadata, Signer},
@@ -23,7 +23,7 @@ use log::warn;
 use std::ops::Range;
 
 #[async_trait]
-impl Signer for StrongholdClient {
+impl Signer for StrongholdAdapter {
     async fn store_mnemonic(&mut self, mnemonic: String) -> Result<()> {
         // Stronghold arguments.
         let output = Location::Generic {
@@ -174,7 +174,7 @@ impl Signer for StrongholdClient {
 }
 
 /// Private methods for the signer implementation.
-impl StrongholdClient {
+impl StrongholdAdapter {
     /// Execute [Procedure::BIP39Recover] in Stronghold to put a mnemonic into the Stronghold vault.
     async fn bip39_recover(
         &self,
