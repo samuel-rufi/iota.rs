@@ -1,5 +1,20 @@
 # Changelog
 
+## \[3.0.0-rc.5]
+
+- Add `aliasIdToBech32()`.
+  - [addf369](https://github.com/iotaledger/iota.rs/commit/addf3695c83d4a6a46770df8cca62e8bd52cc90b) Fix README link on 2022-12-12
+- Add `computeAliasId()` and `computeNftId()` functions.
+  - [addf369](https://github.com/iotaledger/iota.rs/commit/addf3695c83d4a6a46770df8cca62e8bd52cc90b) Fix README link on 2022-12-12
+- Add `computeFoundryId()`.
+  - [addf369](https://github.com/iotaledger/iota.rs/commit/addf3695c83d4a6a46770df8cca62e8bd52cc90b) Fix README link on 2022-12-12
+- Add `nftIdToBech32()`.
+  - [addf369](https://github.com/iotaledger/iota.rs/commit/addf3695c83d4a6a46770df8cca62e8bd52cc90b) Fix README link on 2022-12-12
+- Replaced `nodeSyncEnabled` by `ignoreNodeHealth`.
+  - [addf369](https://github.com/iotaledger/iota.rs/commit/addf3695c83d4a6a46770df8cca62e8bd52cc90b) Fix README link on 2022-12-12
+- Update network info from unhealty nodes if ignoreNodeHealth is set to true.
+  - [addf369](https://github.com/iotaledger/iota.rs/commit/addf3695c83d4a6a46770df8cca62e8bd52cc90b) Fix README link on 2022-12-12
+
 ## \[3.0.0-rc.4]
 
 - Fix rebuild script.
